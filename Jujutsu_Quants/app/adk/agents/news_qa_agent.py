@@ -1,58 +1,45 @@
-# Minor doc update: re-submitting for label and tracking
+# from app.config.adk_config import AGENT_CONFIGS
 
-import re
-import math
-from collections import Counter
-from typing import List, Dict, Any, TypedDict, Union
+# QA_INSTRUCTION = """
+# You are the News QA Agent. Answer user questions using the news corpus. Be concise and cite the article title in your answer. If no answer is found, say 'No relevant article found.'
+# """
+
+# def create_news_qa_agent():
+#     config = AGENT_CONFIGS["news_qa_agent"]
+#     class NewsQAAgent:
+#         def __init__(self):
+#             self.name = config["name"]
+#             self.model = config["model"]
+#             self.description = config["description"]
+#             self.instruction = QA_INSTRUCTION
+#             self.tools = []
+#         def answer(self, articles, question):
+#             keywords = question.lower().split() if question else []
+#             for article in articles:
+#                 content = article.get('content', '').lower()
+#                 if any(word in content for word in keywords):
+#                     return {
+#                         'title': article.get('title', ''),
+#                         'answer': article.get('content', '')
+#                     }
+#             return {'answer': 'No relevant article found.'}
+#     return NewsQAAgent()
+
+# app/adk/agents/news_qa_agent.py
 
 from app.config.adk_config import AGENT_CONFIGS
 
-# --- Type Definitions for API Contract ---
-
-class Passage(TypedDict):
-    text: str
-    source: str
-    start: int
-    end: int
-
-class Citation(TypedDict):
-    source: str
-    start: int
-    end: int
-
-class RankedPassage(TypedDict):
-    passage: Passage
-    score: float
-
-class Answer(TypedDict):
-    answer: str
-    citations: List[Citation]
-
-
-# --- Default Constants ---
-
-DEFAULT_CHUNK_SIZE = 150
-DEFAULT_CHUNK_OVERLAP = 30
-DEFAULT_TOP_K = 3
-DEFAULT_MIN_SCORE = 0.05
-
-
-# --- Agent Instruction ---
-
 QA_INSTRUCTION = """
 You are the News QA Agent. Answer user questions using the provided news corpus.
-Be concise and cite the article titles or URLs.
+Be concise and cite the article titles in your answer.
 If no relevant answer is found, reply with 'No relevant article found.'
 """
-
-
-# --- Factory Function ---
 
 def create_news_qa_agent():
     config = AGENT_CONFIGS["news_qa_agent"]
 
     class NewsQAAgent:
-        def _init_(self):
+        def __init__(self):
             self.name = config["name"]
             self.model = config["model"]
             self.description = config["description"]
@@ -60,44 +47,10 @@ def create_news_qa_agent():
             self.tools = []
 
         # ------------------------------------------------------------
-        # 1️⃣ Passage-based extractive QA (Your version)
-        # ------------------------------------------------------------
-        def answer(
-            self,
-            articles: List[Dict[str, Any]],
-            question: str,
-            top_k: int = DEFAULT_TOP_K,
-            chunk_size: int = DEFAULT_CHUNK_SIZE,
-            overlap: int = DEFAULT_CHUNK_OVERLAP,
-            min_score: float = DEFAULT_MIN_SCORE
-        ) -> Answer:
-            """Returns an extractive answer with citations from a list of articles."""
-            fallback_answer = "No relevant article found."
-            passages: List[Passage] = []
-            top_passages: List[RankedPassage] = []
-
-            if articles:
-                passages = _chunk_articles(articles, chunk_size, overlap)
-
-            if passages:
-                ranked_passages = _rank_passages(passages, question)
-                top_passages = [r for r in ranked_passages[:top_k] if r['score'] > min_score]
-
-            if not top_passages:
-                return {"answer": fallback_answer, "citations": []}
-
-            final_answer = " ".join([r['passage']['text'] for r in top_passages])
-            final_citations: List[Citation] = [
-                {"source": r['passage']['source'], "start": r['passage']['start'], "end": r['passage']['end']}
-                for r in top_passages
-            ]
-
-            return {"answer": final_answer, "citations": final_citations}
-
-        # ------------------------------------------------------------
-        # 2️⃣ Relevance scoring (from main)
+        # 1️⃣ Relevance Scoring
         # ------------------------------------------------------------
         def _calculate_relevance_score(self, article, question):
+            """Calculate a simple relevance score between article and question."""
             content = article.get("content", "").lower()
             title = article.get("title", "").lower()
             question_lower = question.lower()
@@ -109,11 +62,12 @@ def create_news_qa_agent():
 
             # Weighted keyword overlap
             title_matches = len(question_words.intersection(title_words))
-            score += title_matches * 3
+            score += title_matches * 3  # Title matches are more important
 
             content_matches = len(question_words.intersection(content_words))
-            score += content_matches
+            score += content_matches * 1
 
+            # Phrase (word presence) bonus
             for word in question_words:
                 if word in content:
                     score += 0.5
@@ -121,6 +75,7 @@ def create_news_qa_agent():
             return score
 
         def _rank_articles_by_relevance(self, articles, question):
+            """Rank articles by calculated relevance score."""
             scored_articles = []
             for article in articles:
                 score = self._calculate_relevance_score(article, question)
@@ -131,29 +86,24 @@ def create_news_qa_agent():
             return [article for article, score in scored_articles]
 
         # ------------------------------------------------------------
-        # 3️⃣ Question-type detection (from main)
-        # ------------------------------------------------------------
-        def _detect_question_type(self, question):
-            q = question.lower()
-            temporal_keywords = ["trend", "change", "over time", "recently", "history", "evolution", "growth", "decline", "past", "has the", "has been"]
-            if any(k in q for k in temporal_keywords):
-                return "temporal"
-            if any(k in q for k in ["compare", "difference", "vs", "versus"]):
-                return "comparative"
-            if any(k in q for k in ["impact", "effect", "consequence", "cause"]):
-                return "causal"
-            if any(k in q for k in ["what", "how", "why", "when", "where"]):
-                return "factual"
-            return "general"
-
-        # ------------------------------------------------------------
-        # 4️⃣ Combined answer logic
+        # 2️⃣ Answer Extraction
         # ------------------------------------------------------------
         def _extract_relevant_excerpts(self, article, question, max_length=200):
+            """Extract the most relevant excerpts from article content."""
             content = article.get("content", "")
             question_words = set(question.lower().split())
+
+            # Split into sentences
             sentences = content.split(". ")
-            scored_sentences = [(s, sum(1 for w in question_words if w in s.lower())) for s in sentences if sum(1 for w in question_words if w in s.lower()) > 0]
+
+            scored_sentences = []
+            for sentence in sentences:
+                sentence_lower = sentence.lower()
+                matches = sum(1 for word in question_words if word in sentence_lower)
+                if matches > 0:
+                    scored_sentences.append((sentence, matches))
+
+            # Sort by relevance
             scored_sentences.sort(key=lambda x: x[1], reverse=True)
 
             excerpt = ""
@@ -162,83 +112,127 @@ def create_news_qa_agent():
                     excerpt += sentence + ". "
                 else:
                     break
+
             return excerpt.strip()
+
+        # ------------------------------------------------------------
+        # 3️⃣ Question Type Detection
+        # ------------------------------------------------------------
+        def _detect_question_type(self, question):
+            """Detect the type of question being asked."""
+            question_lower = question.lower()
+
+            # Temporal questions FIRST
+            temporal_keywords = ["trend", "change", "over time", "recently", "history", "evolution", "growth", "decline", "past", "has the", "has been"]
+            if any(word in question_lower for word in temporal_keywords):
+                return "temporal"
+
+             # Comparative questions
+            if any(word in question_lower for word in ["compare", "difference", "vs", "versus"]):
+                return "comparative"
+
+            # Causal questions
+            if any(word in question_lower for word in ["impact", "effect", "consequence", "cause"]):
+                return "causal"
+
+            # Factual/general questions LAST
+            if any(word in question_lower for word in ["what", "how", "why", "when", "where"]):
+                return "factual"
+
+            return "general"
+
+
+        # ------------------------------------------------------------
+        # 4️⃣ Handling Question Types
+        # ------------------------------------------------------------
+        def _handle_question_type(self, question, articles):
+            """Route handling logic based on question type."""
+            question_type = self._detect_question_type(question)
+
+            if question_type == "comparative":
+                return self._handle_comparative_question(question, articles)
+            elif question_type == "temporal":
+                return self._handle_temporal_question(question, articles)
+            elif question_type == "causal":
+                return self._handle_causal_question(question, articles)
+            else:
+                return self._handle_general_question(question, articles)
+
+        def _handle_general_question(self, question, articles):
+            """Default handling for factual/general questions."""
+            return self._generate_answer(articles, question)
+
+        def _handle_comparative_question(self, question, articles):
+            """Compare information across sources."""
+            return self._generate_answer(articles, question)
+
+        def _handle_temporal_question(self, question, articles):
+            """Handle time/trend-based questions."""
+            return self._generate_answer(articles, question)
+
+        def _handle_causal_question(self, question, articles):
+            """Handle cause-effect questions."""
+            return self._generate_answer(articles, question)
+
+        # ------------------------------------------------------------
+        # 5️⃣ Generate Final Answer
+        # ------------------------------------------------------------
+        def _generate_answer(self, articles, question):
+            """Generate a grounded answer using multiple top articles."""
+            if not articles:
+                return "No relevant articles found."
+
+            top_articles = articles[:3]
+            answers = []
+
+            for i, article in enumerate(top_articles):
+                excerpt = self._extract_relevant_excerpts(article, question)
+                if excerpt:
+                    source = f"Source {i+1}: {article.get('title', 'Untitled')}"
+                    answers.append(f"{source}\n{excerpt}")
+
+            if not answers:
+                return "No relevant information found in the articles."
+
+            return "\n\n".join(answers)
+
+        # ------------------------------------------------------------
+        # 6️⃣ Enhanced Public API
+        # ------------------------------------------------------------
+        def answer(self, articles, question):
+            """Enhanced answer method with scoring, extraction, and citations."""
+            if not articles or not question:
+                return {"answer": "No articles or question provided."}
+
+            relevant_articles = self._rank_articles_by_relevance(articles, question)
+
+            if not relevant_articles:
+                return {"answer": "No relevant articles found for this question."}
+
+            answer_text = self._handle_question_type(question, relevant_articles)
+            sources = [article.get("title", "Untitled") for article in relevant_articles[:3]]
+
+            return {
+                "answer": answer_text,
+                "sources": sources,
+                "relevance_score": self._calculate_relevance_score(relevant_articles[0], question),
+                "question_type": self._detect_question_type(question),
+            }
 
     return NewsQAAgent()
 
 
-# --- Helper Functions ---
 
-def _chunk_articles(articles: List[Dict[str, Any]], chunk_size: int, overlap: int) -> List[Passage]:
-    passages: List[Passage] = []
-    for article in articles:
-        content = article.get('content', '')
-        if not content.strip():
-            continue
-        source = article.get('source_url', article.get('title', 'unknown_source'))
-        words = list(re.finditer(r'\S+', content))
-        if not words:
-            continue
-        start_idx = 0
-        while start_idx < len(words):
-            end_idx = min(start_idx + chunk_size, len(words))
-            if start_idx >= end_idx:
-                break
-            start_char = words[start_idx].start()
-            end_char = words[end_idx - 1].end()
-            passages.append({"text": content[start_char:end_char], "source": source, "start": start_char, "end": end_char})
-            next_start_idx = start_idx + chunk_size - overlap
-            start_idx = max(next_start_idx, start_idx + 1)
-    return passages
-
-
-def _rank_passages(passages: List[Passage], question: str) -> List[RankedPassage]:
-    passage_texts = [p['text'] for p in passages]
-    passage_tokens = [_tokenize(t) for t in passage_texts]
-    question_tokens = _tokenize(question)
-    corpus_tokens = passage_tokens + [question_tokens]
-    idf_scores = _compute_idf(corpus_tokens)
-    vocab = sorted(idf_scores.keys())
-    question_vector = _compute_tfidf_vector(question_tokens, idf_scores, vocab)
-    ranked: List[RankedPassage] = []
-    for p_tokens, p in zip(passage_tokens, passages):
-        passage_vector = _compute_tfidf_vector(p_tokens, idf_scores, vocab)
-        score = _cosine_similarity(question_vector, passage_vector)
-        ranked.append({"passage": p, "score": score})
-    return sorted(ranked, key=lambda x: x['score'], reverse=True)
-
-
-def _tokenize(text: str) -> List[str]:
-    return re.findall(r'\w+', text.lower())
-
-
-def _compute_tf(tokens: List[str]) -> Dict[str, float]:
-    if not tokens:
-        return {}
-    counts = Counter(tokens)
-    total = len(tokens)
-    return {w: c / total for w, c in counts.items()}
-
-
-def _compute_idf(documents: List[List[str]]) -> Dict[str, float]:
-    num_docs = len(documents)
-    if num_docs == 0:
-        return {}
-    df = Counter()
-    for doc in documents:
-        df.update(set(doc))
-    return {w: math.log(num_docs / (1 + count)) + 1 for w, count in df.items()}
-
-
-def _compute_tfidf_vector(tokens: List[str], idf_scores: Dict[str, float], vocab: List[str]) -> List[float]:
-    tf = _compute_tf(tokens)
-    return [tf.get(word, 0) * idf_scores.get(word, 0) for word in vocab]
-
-
-def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
-    dot_product = sum(a*b for a, b in zip(vec1, vec2))
-    mag1 = math.hypot(*vec1)
-    mag2 = math.hypot(*vec2)
-    if mag1 == 0 or mag2 == 0:
-        return 0.0
-    return dot_product / (mag1 * mag2)
+agent = create_news_qa_agent()
+articles = [
+    {
+        "title": "Apple Reports Strong Earnings",
+        "content": "Apple Inc. reported strong quarterly earnings, beating analyst expectations."
+    },
+    {
+        "title": "Market Update",
+        "content": "The stock market showed mixed signals today."
+    }
+]
+result = agent.answer(articles, "What did Apple report about earnings?")
+print(result)
