@@ -29,17 +29,52 @@
 
 from app.config.adk_config import AGENT_CONFIGS
 
+# --- Type Definitions for API Contract ---
+
+class Passage(TypedDict):
+    text: str
+    source: str
+    start: int
+    end: int
+
+class Citation(TypedDict):
+    source: str
+    start: int
+    end: int
+
+class RankedPassage(TypedDict):
+    passage: Passage
+    score: float
+
+class Answer(TypedDict):
+    answer: str
+    citations: List[Citation]
+
+
+# --- Default Constants ---
+
+DEFAULT_CHUNK_SIZE = 150
+DEFAULT_CHUNK_OVERLAP = 30
+DEFAULT_TOP_K = 3
+DEFAULT_MIN_SCORE = 0.05
+
+
+# --- Agent Instruction ---
+
 QA_INSTRUCTION = """
 You are the News QA Agent. Answer user questions using the provided news corpus.
 Be concise and cite the article titles in your answer.
 If no relevant answer is found, reply with 'No relevant article found.'
 """
 
+
+# --- Factory Function ---
+
 def create_news_qa_agent():
     config = AGENT_CONFIGS["news_qa_agent"]
 
     class NewsQAAgent:
-        def __init__(self):
+        def _init_(self):
             self.name = config["name"]
             self.model = config["model"]
             self.description = config["description"]
