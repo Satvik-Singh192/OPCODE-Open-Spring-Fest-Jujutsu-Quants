@@ -69,11 +69,9 @@ def create_hybrid_rag_summarizer():
             if question:
                 query_terms = [w for w in question.lower().split() if len(w) > 2]
             else:
-                # fallback to frequent title tokens as naive signal
                 tokens: List[str] = []
                 for a in articles or []:
                     tokens.extend([w.lower() for w in (a.get("title") or "").split() if len(w) > 3])
-                # keep a small set to avoid heavy logic
                 seen = set()
                 for t in tokens:
                     if t not in seen:
@@ -103,23 +101,18 @@ def create_hybrid_rag_summarizer():
             regimes = self._compute_regimes(market_data)
             top_passages = self._rank_passages(news_articles, question)
             bias_flags = self.bias.detect(news_articles)
-
-            # Build key points from top passages' first clause and titles
             key_points: List[str] = []
             for p in top_passages:
                 snippet = p["text"].strip().split(". ")[0].strip()
                 if snippet:
                     key_points.append(snippet[:120])
             if not key_points:
-                # fallback: use titles
                 for a in news_articles or []:
                     t = (a.get("title") or "").strip()
                     if t:
                         key_points.append(t)
                         if len(key_points) >= 3:
                             break
-
-            # Compact regime sentence
             moves = []
             for r in regimes:
                 sym = r.get("symbol")
@@ -127,8 +120,6 @@ def create_hybrid_rag_summarizer():
                 if sym:
                     moves.append(f"{sym}:{reg}")
             move_sentence = ", ".join(moves) if moves else "market flat"
-
-            # Uncertainty factors from bias reasons/entities
             uncertainty: List[str] = []
             for b in bias_flags:
                 reason = b.get("reason")
@@ -140,10 +131,8 @@ def create_hybrid_rag_summarizer():
                 if len(uncertainty) >= 4:
                     break
 
-            # Citations from passages
             citations = [{"source": p.get("source", ""), "start": p["start"], "end": p["end"]} for p in top_passages]
 
-            # Compose brief summary
             headline = "; ".join(key_points[:2]) if key_points else "Key drivers mixed"
             summary = f"{headline}. Moves: {move_sentence}."
 
