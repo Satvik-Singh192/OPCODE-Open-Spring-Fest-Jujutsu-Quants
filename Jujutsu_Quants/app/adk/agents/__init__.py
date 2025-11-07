@@ -5,3 +5,4 @@ from .breaking_news_alert import create_breaking_news_alert
 from .bias_detector import create_bias_detector
 from .news_qa_agent import create_news_qa_agent
 from .sentiment_agent import create_sentiment_agent
+from .hybrid_rag_summarizer import create_hybrid_rag_summarizer

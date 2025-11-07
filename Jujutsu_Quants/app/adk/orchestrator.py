@@ -50,7 +50,7 @@ from io import StringIO
 from google.adk.agents import Agent
 from app.config.adk_config import ADK_CONFIG
 from app.adk.agents import (
-    create_anomaly_detector, create_summarizer, create_diversity_analyzer, create_breaking_news_alert, create_bias_detector, create_news_qa_agent, create_sentiment_agent
+    create_anomaly_detector, create_summarizer, create_diversity_analyzer, create_breaking_news_alert, create_bias_detector, create_news_qa_agent, create_sentiment_agent, create_hybrid_rag_summarizer
 )
 from app.adk.adk_agents import (
     create_adk_anomaly_agent, create_adk_summarizer_agent, create_adk_diversity_agent, create_adk_breaking_agent, create_adk_bias_agent, create_adk_sentiment_agent, create_adk_qa_agent
@@ -79,6 +79,9 @@ class Orchestrator:
         self.bias_detector = create_bias_detector()
         self.news_qa_agent = create_news_qa_agent()
         self.sentiment_agent = create_sentiment_agent()
+        self.enable_hybrid_rag = ADK_CONFIG.get("enable_hybrid_rag_summarizer", False)
+        if self.enable_hybrid_rag:
+            self.hybrid_rag_summarizer = create_hybrid_rag_summarizer()
 
     def _init_adk(self):
         self.adk = {
@@ -106,6 +109,8 @@ class Orchestrator:
         results['sentiment'] = self.sentiment_agent.analyze(news_articles)
         if question:
             results['qa'] = self.news_qa_agent.answer(news_articles, question)
+        if getattr(self, 'enable_hybrid_rag', False):
+            results['rag_summary'] = self.hybrid_rag_summarizer.summarize(market_data, news_articles, question)
         return results
 
     async def _process_with_adk(self, market_data, news_articles, question=None):
