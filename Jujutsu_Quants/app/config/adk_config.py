@@ -9,6 +9,8 @@ ADK_CONFIG = {
     "model": "gemini-2.0-flash",
     "use_vertex_ai": True,
     "adk_mode": os.getenv("ADK_MODE", "0") == "1",
+    # Optional hybrid RAG summarizer stage toggle
+    "enable_hybrid_rag_summarizer": os.getenv("ENABLE_HYBRID_RAG", "1") == "1",
 }
 
 # Agent Configuration
